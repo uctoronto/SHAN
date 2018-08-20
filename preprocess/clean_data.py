@@ -5,8 +5,6 @@ import pandas as pd
 # first_step_clean_data方法：
 # 1、去除多余列；2、仅仅保留最近n个月的数据；3、只保留至少被m个用户购买过的item。
 #
-# second_step_clean_data方法：
-# 1、去除只含一个item的session；2、对每个用户按时间生成多个session(以一天为一个单位)
 
 class Dataset(object):
 
