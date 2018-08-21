@@ -3,10 +3,14 @@ import numpy as np
 import os
 
 
+# 用于生成datatype_dataset.csv文件
+# 即sessions
+
 class generate(object):
 
-    def __init__(self, object):
-        self._data = pd.read_csv(object)
+    def __init__(self, dataPath, sessPath):
+        self._data = pd.read_csv(dataPath)
+        self.sessPath = sessPath
 
     def stati_data(self):
         print('总数据量:', len(self._data))
@@ -40,17 +44,20 @@ class generate(object):
                 item_to_id[i_id] = item_count
                 self._data.at[i, 'ite_ID'] = item_count
                 item_count += 1
-        self._data.to_csv('../data/data.csv', index=False)
+        self._data.to_csv('../data/middle_data.csv', index=False)
         print('user_count', user_count)
         print('item_count', item_count)
 
     def generate_session(self):
-        session_path = '../data/tallM_dataset.csv'
+        self.stati_data()  # 统计数据集
+        self.reform_u_i_id()  # 重新编码user和item
+        self._data = pd.read_csv('../data/middle_data.csv')
+        os.remove('../data/middle_data.csv')
+        session_path = self.sessPath
         if os.path.exists(session_path):
             os.remove(session_path)
-        session_file = open('../data/tallM_dataset.csv', 'a')
+        session_file = open(session_path, 'a')
         # 这里最好使用numpy的格式，最后也按照这样的格式进行保存
-
 
         user_num = len(self._data['use_ID'].drop_duplicates())
         item_num = len(self._data['ite_ID'].drop_duplicates())
@@ -78,8 +85,9 @@ class generate(object):
 
 
 if __name__ == '__main__':
-    dataPath = '../data/data.csv'
-    object = generate(dataPath)
+    datatype = ['tallM', 'gowalla']
+    dataPath = '../data/' + datatype[0] + '_data.csv'
+    sessPath = '../data/' + datatype[0] + '_dataset.csv'
+    object = generate(dataPath, sessPath)
     object.stati_data()
-    # object.reform_u_i_id()
-    object.generate_session()
+    # object.generate_session()

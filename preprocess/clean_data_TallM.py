@@ -1,5 +1,6 @@
 import pandas as pd
 
+
 # 该py文件的功能是将源数据
 # first_step_clean_data方法：
 # 1、去除多余列；2、仅仅保留最近n个月的数据；3、只保留至少被m个用户购买过的item。
@@ -7,8 +8,9 @@ import pandas as pd
 
 class Dataset(object):
 
-    def __init__(self):
-        return
+    def __init__(self,source_file,data_file):
+        self._source_file = source_file
+        self._data_file = data_file
 
     def item_appear(self, appear_time, ds):
         dm = ds[['use_ID', 'ite_ID']].drop_duplicates()
@@ -18,18 +20,18 @@ class Dataset(object):
         return ds
 
     def session_not_single(self, ds):
-        ds = ds[ds.duplicated(['use_ID', 'time'], keep=False) == True]
+        ds = ds[ds.duplicated(['use_ID', 'time'], keep=False)]
         return ds
 
-    def user_have_more_session(self, ds,user_sessin):
+    def user_have_more_session(self, ds, user_sessin):
         dm = ds.drop_duplicates(['use_ID', 'time'])
         da = dm.groupby(by=['use_ID'], as_index=False)['use_ID'].agg({'cnt': 'count'})
         use_list = list(da[da['cnt'] >= user_sessin]['use_ID'])
         ds = ds[ds['use_ID'].isin(use_list)]
         return ds
 
-    def first_step_clean_data(self, source_file, months=7, appear_time=20,user_sessin=5):
-        data = pd.read_csv(source_file)
+    def first_step_clean_data(self, months=7, appear_time=20, user_sessin=5):
+        data = pd.read_csv(self._source_file)
         ds = data.drop(['sel_ID', 'cat_ID'], axis=1)
         ds = ds[(ds['act_ID'] == 1) & (ds['time'] > 20150430)]
         ds = ds.drop(['act_ID'], axis=1)
@@ -44,16 +46,17 @@ class Dataset(object):
         ds = self.session_not_single(ds)
 
         # 对于每个用户，如果只存在一个session，则去除
-        ds = self.user_have_more_session(ds,user_sessin)
+        ds = self.user_have_more_session(ds, user_sessin)
 
         # ds = self.item_appear(appear_time, ds)
-        ds.to_csv('~/SHAN/data.csv', index=False)
+        ds.to_csv(self._data_file, index=False)
 
 
-source_file = '~/SHAN/ijcai2016_taobao.csv'
-data_file = '~/SHAN/data.csv'
+datatype = 'tallM'
+source_file = '../data/' + datatype + '.csv'
+data_file = '../data/' + datatype + '_data.csv'
 months = 7
 appear_time = 20
 user_sessin = 5
-data = Dataset()
-data.first_step_clean_data(source_file, months, appear_time,user_sessin)
+data = Dataset(source_file,data_file)
+data.first_step_clean_data(months, appear_time, user_sessin)

@@ -12,8 +12,8 @@ class data_generation():
         print('init')
         self.data_type = type
         self.dataset = './data/' + self.data_type + '_dataset.csv'
-        self.train_file_path = './data/' + self.data_type + '_train_filtered'
-        self.test_file_path = './data/' + self.data_type + '_test_filtered'
+        # self.train_file_path = './data/' + self.data_type + '_train_filtered'
+        # self.test_file_path = './data/' + self.data_type + '_test_filtered'
 
         self.train_users = []
         self.train_sessions = []  # 当前的session
