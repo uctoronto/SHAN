@@ -1,0 +1,22 @@
+
+1、在对lista进行append(listb)操作后，如果在后面listb发生，那么会影响lista中原来加入的listb的值。
+    原因：lista中的listb并没有在内存中重新创建，而是指向了原来的listb，因此listb发生变化，lista中原来添加的listb也会发生相应的变化
+    解决方法：使用一个变量tmp，通过copy.deepcopy()的方式将需要保存的内容赋值给他们怕，然后用tmp来进行传递，这样每次tmp都会因为深拷贝
+                而改变，同时之前传入list的值不会随着tmp的改变而改变。
+
+
+2、论文中数据处理的要求
+    # 取最后七个月的数据进行实验
+    # 少于20个user访问/购买的item进行remove
+    # 将每个用户一天的数据作为一个session
+    # 对只包含一个item的session进行remove
+    # 最后一个月中随机选取20%的session最为test set
+    # 从每个session中随机选取一个item作为next item to be predicted
+
+3、计算top-k时，需不需要将用户之前购买过的item去掉，只保留没有购买过的item
+    1、如果是推荐单个item，而不是基于session/basket来操作，最好是在数据清理的过程中将用户的重复数据清理掉，
+        这样在最后的test阶段也就需要在top-k的计算中剔除掉已经购买过的item
+    2、在当前SHAN实验中，由于session之际无法避免会出现重复，所以我们在进行实验的过程中，也会保留重复数据，
+        只是在单个session中进行去重，因此最后计算top-k的时候就需要去剔除掉之前购买过的item
+
+4、加入gowalla数据集，在test集选择上尽量和论文一样
