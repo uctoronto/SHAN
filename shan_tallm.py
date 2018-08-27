@@ -277,22 +277,22 @@ class shan():
              self.the_first_bias, self.the_second_bias])
 
         t = pd.DataFrame(user_latent_factors)
-        t.to_csv('./model_result/user_latent_factors')
+        t.to_csv('./model_result/tallm/user_latent_factors')
 
         t = pd.DataFrame(item_latent_factors)
-        t.to_csv('./model_result/item_latent_factors')
+        t.to_csv('./model_result/tallm/item_latent_factors')
 
         t = pd.DataFrame(the_first_w)
-        t.to_csv('./model_result/the_first_w')
+        t.to_csv('./model_result/tallm/the_first_w')
 
         t = pd.DataFrame(the_second_w)
-        t.to_csv('./model_result/the_second_w')
+        t.to_csv('./model_result/tallm/the_second_w')
 
         t = pd.DataFrame(the_first_bias)
-        t.to_csv('./model_result/the_first_bias')
+        t.to_csv('./model_result/tallm/the_first_bias')
 
         t = pd.DataFrame(the_second_bias)
-        t.to_csv('./model_result/the_second_bias')
+        t.to_csv('./model_result/tallm/the_second_bias')
 
         return
 

@@ -78,8 +78,8 @@ class data_generation():
         self.test_candidate_items = list(range(self.item_number))
 
         # 对于ndarray进行sample得到test目标数据
-        print(type(self.data.values))
-        data = random.sample(self.data.values, int(len(self.data.values) * 0.2))
+        sub_index = self.shuffle(len(self.data.values))
+        data = self.data.values[sub_index]
 
         for line in data:
             user_id = int(line[0])
@@ -97,6 +97,12 @@ class data_generation():
         # batch_session = self.test_sessions[user_id]
         # batch_pre_session = self.test_pre_sessions[user_id]
 
+    def shuffle(self, test_length):
+        index = np.array(range(test_length))
+        np.random.shuffle(index)
+        sub_index = np.random.choice(index, int(test_length * 0.2))
+        return sub_index
+
     def gen_neg(self, user_id):
         neg_item = np.random.randint(self.item_number)
         while neg_item in self.user_purchased_item[user_id]:
@@ -104,9 +110,9 @@ class data_generation():
         return neg_item
 
     def gen_train_batch_data(self, batch_size):
-        l = len(self.train_users)
+        # l = len(self.train_users)
 
-        if self.train_batch_id == l:
+        if self.train_batch_id == self.records_number:
             self.train_batch_id = 0
 
         batch_user = self.train_users[self.train_batch_id:self.train_batch_id + batch_size]
@@ -119,12 +125,18 @@ class data_generation():
 
         return batch_user, batch_item, batch_session, batch_neg_item, batch_pre_session
 
-    def gen_test_batch_data(self, user_id, batch_size):
+    def gen_test_batch_data(self, batch_size):
+        l = len(self.test_users)
 
-        batch_user = self.test_users[user_id:user_id + batch_size]
+        if self.test_batch_id == l:
+            self.test_batch_id = 0
+
+        batch_user = self.test_users[self.test_batch_id:self.test_batch_id + batch_size]
         batch_item = self.test_candidate_items
-        batch_session = self.test_sessions[user_id]
-        batch_pre_session = self.test_pre_sessions[user_id]
+        batch_session = self.test_sessions[self.test_batch_id]
+        batch_pre_session = self.test_pre_sessions[self.test_batch_id]
+
+        self.test_batch_id = self.test_batch_id + batch_size
 
         return batch_user, batch_item, batch_session, batch_pre_session
 
@@ -137,6 +149,7 @@ class shan():
 
         logging.config.fileConfig('logging.conf')
         self.logger = logging.getLogger()
+
         self.dg = data_generation(self.input_data_type)
         # 数据格式化
         self.dg.gen_train_data()
@@ -154,15 +167,15 @@ class shan():
         self.test_pre_sessions = self.dg.test_pre_sessions
         self.test_real_items = self.dg.test_real_items
 
-        self.global_dimension = 20
+        self.global_dimension = 100
         self.batch_size = 1
-        self.K = 10
+        self.K = 20
         self.results = []  # 可用来保存test每个用户的预测结果，最终计算precision
 
         self.step = 0
         self.iteration = 10
-        self.lamada_u_v = 0.01
-        self.lamada_a = 1
+        self.lamada_u_v = 0.0001
+        self.lamada_a = 50
 
         self.initializer = tf.random_normal_initializer(mean=0, stddev=0.01)
         self.initializer_param = tf.random_uniform_initializer(minval=-np.sqrt(3 / self.global_dimension),
@@ -280,6 +293,7 @@ class shan():
                         # print('batch_item:', batch_item)
                         # print('batch_session', batch_session)
                         self.evolution()
+                        print(self.step, '/', self.dg.train_batch_id, '/', self.dg.records_number)
                 self.step = 0
 
             # 保存模型
@@ -291,22 +305,22 @@ class shan():
              self.the_first_bias, self.the_second_bias])
 
         t = pd.DataFrame(user_latent_factors)
-        t.to_csv('./model_result/user_latent_factors')
+        t.to_csv('./model_result/gowalla/user_latent_factors')
 
         t = pd.DataFrame(item_latent_factors)
-        t.to_csv('./model_result/item_latent_factors')
+        t.to_csv('./model_result/gowalla/item_latent_factors')
 
         t = pd.DataFrame(the_first_w)
-        t.to_csv('./model_result/the_first_w')
+        t.to_csv('./model_result/gowalla/the_first_w')
 
         t = pd.DataFrame(the_second_w)
-        t.to_csv('./model_result/the_second_w')
+        t.to_csv('./model_result/gowalla/the_second_w')
 
         t = pd.DataFrame(the_first_bias)
-        t.to_csv('./model_result/the_first_bias')
+        t.to_csv('./model_result/gowalla/the_first_bias')
 
         t = pd.DataFrame(the_second_bias)
-        t.to_csv('./model_result/the_second_bias')
+        t.to_csv('./model_result/gowalla/the_second_bias')
 
         return
 
@@ -321,9 +335,9 @@ class shan():
     def evolution(self):
         pre_top_k = []
 
-        for user_id in self.test_users:
-            batch_user, batch_item, batch_session, batch_pre_session = self.dg.gen_test_batch_data(user_id,
-                                                                                                   self.batch_size)
+        for _ in self.test_users:
+            batch_user, batch_item, batch_session, batch_pre_session = self.dg.gen_test_batch_data(
+                self.batch_size)
             top_k_value, top_index = self.sess.run([self.top_value, self.top_index],
                                                    feed_dict={self.user_id: batch_user,
                                                               self.item_id: batch_item,
