@@ -21,6 +21,10 @@
 
 4、加入gowalla数据集，在test集选择上尽量和论文一样
 
+5、在对gowalla的test部分抽取20%作为test数据集时，dataframe.values的对象为ndarray类型，所以需要在其中随机选一些行作为test：
+    在np.random中存在shuffle这样一个函数，可以将数组顺序随机打乱，所以我们可以对list(range(ndarray))进行shuffle操作，
+    然后再采用np.random.choice(list,num)方法随机挑选num个数字组成数组，然后使用dataframe.values[list]得到子矩阵，
+    即为我们需要的test数据集。
 
 
 
