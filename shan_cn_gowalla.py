@@ -6,6 +6,11 @@ import copy
 import logging
 import logging.config
 
+# 从cross network中得到启发，对特征进行融合。在这里long_term和short_term的用户表示需要进行combine，
+# 所以想借助多种方式model计算两个representation然后再concat后，利用cross network的想法求最后的user_hybrid
+#
+# 目标：对long_term和short_term进行计算，再concat后计算得到user_hybrid
+#
 
 class data_generation():
     def __init__(self, type):
@@ -262,13 +267,19 @@ class shan():
 
         self.long_user_embedding = self.attention(self.user_embedding, self.pre_sessions_embedding,
                                                   self.the_first_w, self.the_first_bias)
-        self.short_user_embedding = self.attention(self.user_embedding, self.current_session_embedding,
-                                                   self.the_second_w, self.the_second_bias)
+
+        # 1、对session中item vector与user_embedding计算attention得到short_user_embedding
+        # self.short_user_embedding = self.attention(self.user_embedding, self.current_session_embedding,
+        #                                            self.the_second_w, self.the_second_bias)
+
+        # 2、对session中item vector进行average_pooling得到short_user_embedding，模仿HRM model
+        self.short_user_embedding = tf.reduce_mean(self.user_embedding,axis=0)
 
         self._x_0 = tf.concat(
             [tf.expand_dims(self.long_user_embedding, axis=0), tf.expand_dims(self.short_user_embedding, axis=0)],
             axis=1)
 
+        # 3、对session中item vector与long_user_embedding计算attention得到short_user_embedding
         # self.short_user_embedding = self.attention(tf.expand_dims(self.long_user_embedding,axis=0), self.current_session_embedding,
         #                                            self.the_second_w, self.the_second_bias)
         # self._x_0 = tf.expand_dims(self.short_user_embedding, axis=0)
