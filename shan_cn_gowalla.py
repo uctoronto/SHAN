@@ -6,6 +6,7 @@ import copy
 import logging
 import logging.config
 
+
 # 从cross network中得到启发，对特征进行融合。在这里long_term和short_term的用户表示需要进行combine，
 # 所以想借助多种方式model计算两个representation然后再concat后，利用cross network的想法求最后的user_hybrid
 #
@@ -172,16 +173,16 @@ class shan():
         self.test_pre_sessions = self.dg.test_pre_sessions
         self.test_real_items = self.dg.test_real_items
 
-        self.global_dimension = 100
+        self.global_dimension = 20
         self.batch_size = 1
         self.K = 20
-        self.cross_layer_num = 2
+        self.cross_layer_num = 1
         self.results = []  # 可用来保存test每个用户的预测结果，最终计算precision
 
         self.step = 0
         self.iteration = 10
-        self.lamada_u_v = 0.1
-        self.lamada_a = 0.1
+        self.lamada_u_v = 0.01
+        self.lamada_a = 0.01
 
         self.initializer = tf.random_normal_initializer(mean=0, stddev=0.01)
         self.initializer_param = tf.random_uniform_initializer(minval=-np.sqrt(3 / self.global_dimension),
@@ -265,15 +266,17 @@ class shan():
         self.pre_sessions_embedding = tf.nn.embedding_lookup(self.item_embedding_matrix, self.pre_sessions)
         self.neg_item_embedding = tf.nn.embedding_lookup(self.item_embedding_matrix, self.neg_item_id)
 
-        self.long_user_embedding = self.attention(self.user_embedding, self.pre_sessions_embedding,
-                                                  self.the_first_w, self.the_first_bias)
+        # self.long_user_embedding = self.attention(self.user_embedding, self.pre_sessions_embedding,
+        #                                           self.the_first_w, self.the_first_bias)
+
+        self.long_user_embedding = tf.reduce_mean(self.pre_sessions_embedding, axis=0)
 
         # 1、对session中item vector与user_embedding计算attention得到short_user_embedding
         # self.short_user_embedding = self.attention(self.user_embedding, self.current_session_embedding,
         #                                            self.the_second_w, self.the_second_bias)
 
         # 2、对session中item vector进行average_pooling得到short_user_embedding，模仿HRM model
-        self.short_user_embedding = tf.reduce_mean(self.user_embedding,axis=0)
+        self.short_user_embedding = tf.reduce_mean(self.current_session_embedding, axis=0)
 
         self._x_0 = tf.concat(
             [tf.expand_dims(self.long_user_embedding, axis=0), tf.expand_dims(self.short_user_embedding, axis=0)],
