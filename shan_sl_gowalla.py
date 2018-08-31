@@ -173,7 +173,7 @@ class shan():
         self.results = []  # 可用来保存test每个用户的预测结果，最终计算precision
 
         self.step = 0
-        self.iteration = 10
+        self.iteration = 20
         self.lamada_u_v = 0.01
         self.lamada_a = 0.01
 
@@ -226,29 +226,33 @@ class shan():
         self.pre_sessions_embedding = tf.nn.embedding_lookup(self.item_embedding_matrix, self.pre_sessions)
         self.neg_item_embedding = tf.nn.embedding_lookup(self.item_embedding_matrix, self.neg_item_id)
 
-        self.long_user_embedding = self.attention(self.user_embedding, self.pre_sessions_embedding,
-                                                  self.the_first_w, self.the_first_bias)
+        # self.long_user_embedding = self.attention(self.user_embedding, self.pre_sessions_embedding,
+        #                                           self.the_first_w, self.the_first_bias)
 
         # self.long_user_embedding = tf.reduce_mean(self.pre_sessions_embedding, axis=0)
 
         # 1、对session中item vector与user_embedding计算attention得到short_user_embedding
-        # self.short_user_embedding = self.attention(self.user_embedding, self.current_session_embedding,
-        #                                            self.the_second_w, self.the_second_bias)
+        self.short_user_embedding = self.attention(self.user_embedding, self.current_session_embedding,
+                                                   self.the_second_w, self.the_second_bias)
 
         # 2、对session中item vector进行average_pooling得到short_user_embedding，模仿HRM model
         # self.short_user_embedding = tf.reduce_mean(self.current_session_embedding, axis=0)
 
         # 3、对session中item vector与long_user_embedding计算attention得到short_user_embedding
-        self.short_user_embedding = self.attention(tf.expand_dims(self.long_user_embedding,axis=0), self.current_session_embedding,
-                                                   self.the_second_w, self.the_second_bias)
+        # self.short_user_embedding = self.attention(tf.expand_dims(self.long_user_embedding,axis=0),
+        #                                            self.current_session_embedding,
+        #                                            self.the_second_w, self.the_second_bias)
         # self._x_0 = tf.expand_dims(self.short_user_embedding, axis=0)
 
-        self.x_h = tf.concat(
-            [tf.expand_dims(self.long_user_embedding, axis=0), tf.expand_dims(self.short_user_embedding, axis=0)],
-            axis=1)
-
-        self.hybrid_user_embedding = self.output_network()
+        # self.x_h = tf.concat(
+        #     [tf.expand_dims(self.long_user_embedding, axis=0), tf.expand_dims(self.short_user_embedding, axis=0)],
+        #     axis=1)
+        #
         # 将hybrid_user_embedding与所有的item计算，先要定义一个[2*D,D]的weight
+        # self.hybrid_user_embedding = self.output_network()
+
+        # 4、只考虑short-term user embedding
+        self.hybrid_user_embedding = self.short_user_embedding
 
         # compute preference
         self.positive_element_wise = tf.matmul(tf.expand_dims(self.hybrid_user_embedding, axis=0),
@@ -272,7 +276,7 @@ class shan():
     def run(self):
         print('running ... ')
         with tf.Session() as self.sess:
-            self.intention_optimizer = tf.train.GradientDescentOptimizer(learning_rate=0.01).minimize(
+            self.intention_optimizer = tf.train.GradientDescentOptimizer(learning_rate=0.1).minimize(
                 self.intention_loss)
             init = tf.global_variables_initializer()
             self.sess.run(init)
@@ -295,7 +299,7 @@ class shan():
                                              })
 
                     self.step += 1
-                    if self.step * self.batch_size % 5000 == 0:
+                    if self.step * self.batch_size % 50000 == 0:
                         # 训练的batch数为100的整数时，进行evaluate
                         # 需要对多有的test_batch数据计算结果并保存在result中，最后计算precision值，top-k
                         print('eval ...')
