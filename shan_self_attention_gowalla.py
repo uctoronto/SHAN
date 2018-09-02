@@ -6,19 +6,17 @@ import copy
 import logging
 import logging.config
 
-# 根据session的顺序，不断计算user_embedding和session的attention结果，并与下一个session进行concat，继续重复上述操作
 
-# 遇到的问题：在计算得到的每个pu(u)无法追加到placeholder中，目前来看placeholder传值的方式是feet_dict的方式
-# 但是feet_dict只适用于session中，无法在build_model中进行动态的生成palceholder？有没有其他的方式
-#
+# 根据session的顺序，与pu计算多个pu(t)，
+# 然后将所有的pu(t)计算self-attention来得到最终的pu(long)
+# 并与short-term的session计算最终的pu(hybrid)，然后在predict item（或者是计算pu，直接计算得到最终的item推荐）
+
 class data_generation():
     def __init__(self, type):
         print('init')
         self.data_type = type
         self.train_dataset = './data/' + self.data_type + '_train_dataset.csv'
         self.test_dataset = './data/' + self.data_type + '_test_dataset.csv'
-        # self.train_file_path = './data/' + self.data_type + '_train_filtered'
-        # self.test_file_path = './data/' + self.data_type + '_test_filtered'
 
         self.train_users = []
         self.train_sessions = []  # 当前的session
@@ -48,6 +46,7 @@ class data_generation():
                 self.user_number = int(line[0])
                 self.item_number = int(line[1])
                 self.user_purchased_item = dict()  # 保存每个用户购买记录，可用于train时负采样和test时剔除已打分商品
+                self.user_purchased_sessions = dict()
                 is_first_line = 0
             else:
                 user_id = int(line[0])
@@ -57,6 +56,8 @@ class data_generation():
                 pre_sessions.append(the_first_session)
                 tmp = copy.deepcopy(pre_sessions)
                 self.train_pre_sessions.append(tmp)
+                self.user_purchased_item[user_id] = tmp
+                del tmp
 
                 for j in range(1, size):
                     # 每个用户的每个session在train_users中都对应着其user_id，不一定是连续的
@@ -68,15 +69,18 @@ class data_generation():
                     if j != 1:
                         tmp = copy.deepcopy(pre_sessions)
                         self.train_pre_sessions.append(tmp)
+                        del tmp
                         tmp = copy.deepcopy(current_session)
-                        pre_sessions.append(tmp)
+                        self.user_purchased_item[user_id].extend(tmp)
+                        del tmp
                     # 随机挑选一个作为prediction item
                     item = random.choice(current_session)
                     self.train_items.append(item)
                     current_session.remove(item)
                     self.train_sessions.append(current_session)
                     self.records_number += 1
-                self.user_purchased_item[user_id] = pre_sessions
+
+                self.user_purchased_sessions[user_id] = pre_sessions
 
     def gen_test_data(self):
         self.data = pd.read_csv(self.test_dataset, names=['user', 'sessions'], dtype='str')
@@ -88,14 +92,14 @@ class data_generation():
 
         for line in data:
             user_id = int(line[0])
-            if user_id in self.user_purchased_item.keys():
+            if user_id in self.user_purchased_sessions.keys():
                 current_session = [int(i) for i in line[1].split(':')]
                 self.test_users.append(user_id)
                 item = random.choice(current_session)
                 self.test_real_items.append(int(item))
                 current_session.remove(item)
                 self.test_sessions.append(current_session)
-                self.test_pre_sessions.append(self.user_purchased_item[user_id])
+                self.test_pre_sessions.append(self.user_purchased_sessions[user_id])
 
     def shuffle(self, test_length):
         index = np.array(range(test_length))
@@ -190,8 +194,7 @@ class shan():
 
         self.pre_sessions = tf.placeholder(tf.int32, shape=[None], name='pre_sessions')
 
-        self.long_user_embedding_tmp = tf.placeholder(tf.float32,shape=[None],name='long_user_embedding_tmp')
-        # self.long_user_embedding_two_tmp = tf.placeholder(tf.float32,shape=[None],name='long_user_embedding_two_tmp')
+        # self.long_user_embedding_tmp = tf.placeholder(tf.float32,shape=[None],name='long_user_embedding_tmp')
 
         self.user_embedding_matrix = tf.get_variable('user_embedding_matrix', initializer=self.initializer,
                                                      shape=[self.user_number, self.global_dimension])
@@ -206,32 +209,33 @@ class shan():
         self.the_second_bias = tf.get_variable('the_second_bias', initializer=self.initializer_param,
                                                shape=[self.global_dimension])
 
-    def attention_level_one(self, user_embedding, pre_sessions_embedding, the_first_w, the_first_bias):
-        # 最终weight为 1*n 的矩阵
-        self.weight = tf.nn.softmax(tf.transpose(tf.matmul(tf.sigmoid(
-            tf.add(tf.matmul(pre_sessions_embedding, the_first_w), the_first_bias)), tf.transpose(user_embedding))))
+    def soft_attention(self, user_embedding, pre_sessions_embedding, the_first_w, the_first_bias):
+        # pu与多个session分别计算attention，得到多个pu(t)
+        # 先不考虑使用 the_first_w 和 the_first_bias
+        self.weight = tf.nn.softmax(
+            tf.cast(tf.reduce_sum(tf.multiply(pre_sessions_embedding, user_embedding), axis=2), dtype=tf.float32))
 
-        out = tf.reduce_sum(tf.multiply(pre_sessions_embedding, tf.transpose(self.weight)), axis=0)
+        out = tf.reduce_sum(tf.multiply(pre_sessions_embedding, tf.expand_dims(self.weight, -1)), axis=1)
         return out
 
-    def attention_level_two(self, user_embedding, session_embedding, the_second_w,
-                            the_second_bias):
-        # 需要将long_user_embedding加入到current_session_embedding中来进行attention，
-        # 论文中规定，long_user_embedding的表示也不会根据softmax计算得到的参数而变化。
+    def self_attention(self, pre_user_embedding):
+        # 将soft_attention中计算得到的pu(t)计算self_attention得到最终的pu(long)
+        # pre_user_embedding 中每一行表示一个pu，这个pu是其所对应的session与pu进行attention得到的
 
-        self.weight = tf.nn.softmax(tf.transpose(tf.matmul(
-            tf.sigmoid(tf.add(
-                tf.matmul(tf.concat([session_embedding, tf.expand_dims(self.long_user_embedding_tmp, axis=0)], 0),
-                          the_second_w), the_second_bias)), tf.transpose(user_embedding))))
-        out = tf.reduce_sum(
-            tf.multiply(tf.concat([session_embedding, tf.expand_dims(self.long_user_embedding_tmp, axis=0)], 0),
-                        tf.transpose(self.weight)), axis=0)
-        return out
+        # self.weight = tf.nn.softmax(tf.transpose(tf.matmul(
+        #     tf.sigmoid(tf.add(
+        #         tf.matmul(tf.concat([session_embedding, tf.expand_dims(self.long_user_embedding_tmp, axis=0)], 0),
+        #                   the_second_w), the_second_bias)), tf.transpose(user_embedding))))
+        # out = tf.reduce_sum(
+        #     tf.multiply(tf.concat([session_embedding, tf.expand_dims(self.long_user_embedding_tmp, axis=0)], 0),
+        #                 tf.transpose(self.weight)), axis=0)
+        # return out
 
-    def generate_long_term_rep(self):
-        # 如果使用第一种操作，则重复执行pre_sessions_embedding.size()次attention_level_one
+        return pre_user_embedding
 
-        # 如果使用第二种操作，则先执行一次attention_level_one，然后循环使用attention_level_two
+    def generate_hybrid_pu(self, user_embedding, current_session_embedding, long_user_embedding, the_second_w,
+                           the_second_bias):
+
         return 0
 
     def build_model(self):
@@ -243,21 +247,20 @@ class shan():
 
         self.pre_sessions_embedding = tf.nn.embedding_lookup(self.item_embedding_matrix, self.pre_sessions)
 
-        self.long_user_embedding_one = self.attention_level_one(self.user_embedding, self.pre_sessions_embedding,
-                                                                self.the_first_w, self.the_first_bias)
+        self.pre_user_embedding = self.soft_attention(self.user_embedding, self.pre_sessions_embedding,
+                                                      self.the_first_w, self.the_first_bias)
 
-        self.long_user_embedding_two = self.attention_level_two(self.user_embedding,
-                                                                self.pre_sessions_embedding,
-                                                                self.the_first_w, self.the_first_bias)
+        self.long_user_embedding = self.self_attention(self.pre_user_embedding)
 
-        # self.hybrid_user_embedding = self.attention_level_two(self.user_embedding,
-        #                                                       self.current_session_embedding,
-        #                                                       self.the_second_w, self.the_second_bias)
+        self.hybrid_user_embedding = self.generate_hybrid_pu(self.user_embedding,
+                                                             self.current_session_embedding,
+                                                             self.long_user_embedding,
+                                                             self.the_second_w, self.the_second_bias)
 
         # compute preference
-        self.positive_element_wise = tf.matmul(tf.expand_dims(self.long_user_embedding_tmp, axis=0),
+        self.positive_element_wise = tf.matmul(tf.expand_dims(self.hybrid_user_embedding, axis=0),
                                                tf.transpose(self.item_embedding))
-        self.negative_element_wise = tf.matmul(tf.expand_dims(self.long_user_embedding_tmp, axis=0),
+        self.negative_element_wise = tf.matmul(tf.expand_dims(self.hybrid_user_embedding, axis=0),
                                                tf.transpose(self.neg_item_embedding))
         self.intention_loss = tf.reduce_mean(
             -tf.log(tf.nn.sigmoid(self.positive_element_wise - self.negative_element_wise)))
@@ -290,39 +293,19 @@ class shan():
                     batch_user, batch_item, batch_session, batch_neg_item, batch_pre_sessions = self.dg.gen_train_batch_data(
                         self.batch_size)
 
-                    # batch_pre_sessions 是一个二维矩阵，所以这里需要循环计算，循环 计算出long_term_user_embedding
-                    long_user_embedding = None
-                    for i in range(len(batch_pre_sessions)):
-                        every_batch_pre_session = batch_pre_sessions[i]
-                        if i == 0:
-                            long_user_embedding = self.sess.run(self.long_user_embedding_one, feed_dict={
-                                self.user_id: batch_user,
-                                self.pre_sessions: every_batch_pre_session
-                            })
-                        else:
-                            long_user_embedding = self.sess.run(self.long_user_embedding_two, feed_dict={
-                                self.user_id: batch_user,
-                                self.long_user_embedding_tmp:long_user_embedding,
-                                self.pre_sessions: every_batch_pre_session
-                            })
-
                     self.sess.run(self.intention_optimizer,
                                   feed_dict={self.user_id: batch_user,
                                              self.item_id: batch_item,
                                              self.current_session: batch_session,
                                              self.neg_item_id: batch_neg_item,
+                                             self.pre_sessions: batch_pre_sessions
                                              })
 
                     self.step += 1
-                    if self.step * self.batch_size % 5000 == 0:
-                        # 训练的batch数为100的整数时，进行evaluate
-                        # 需要对多有的test_batch数据计算结果并保存在result中，最后计算precision值，top-k
-                        print('eval ...')
-                        # print('batch_user:', batch_user)
-                        # print('batch_item:', batch_item)
-                        # print('batch_session', batch_session)
-                        self.evolution()
-                        print(self.step, '/', self.dg.train_batch_id, '/', self.dg.records_number)
+                    # if self.step * self.batch_size % 5000 == 0:
+                print('eval ...')
+                self.evolution()
+                print(self.step, '/', self.dg.train_batch_id, '/', self.dg.records_number)
                 self.step = 0
 
             # 保存模型
